@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # MicroStep Anchor ⚓
 
 > *"The user decides what exists. The AI decides what comes next."*
