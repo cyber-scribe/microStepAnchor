@@ -48,9 +48,8 @@ async def generate_plan(request: PlanGenerationRequest):
 
     try:
         adapter = get_ai_adapter()
-        provider_name = os.getenv("AI_PROVIDER", "mock")
         plan_items = await adapter.generate_plan(request.tasks)
-        return PlanResponse(plan=plan_items, provider=provider_name)
+        return PlanResponse(plan=plan_items, provider=adapter.provider_used)
     except Exception as exc:
         raise HTTPException(
             status_code=500,

@@ -188,8 +188,8 @@ export default function App() {
       setStepTransitionKey((k) => k + 1);
       setLastGlobal(currentStep.global);
     }
-  // Intentionally skip exhaustive deps — we drive this only off the cursor moving.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Intentionally skip exhaustive deps — we drive this only off the cursor moving.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentStep?.global]);
 
   // ---------- execution progression ----------
@@ -245,15 +245,29 @@ export default function App() {
         {/* ---------------------------- TASK INPUT ---------------------------- */}
         {screen === 'task-input' && (
           <div className="space-y-10 anim-step-in">
-            <header className="space-y-4">
-              <div className="text-[11px] font-mono uppercase tracking-[0.22em] text-teal-400/90">Step 1 of 3</div>
-              <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-white leading-[1.1]">
-                Add Your Tasks
-              </h1>
-              <p className="text-[15px] leading-relaxed text-slate-400 max-w-xl">
-                Tell me everything competing for your attention today. I&apos;ll decide what deserves it first — and
-                then guide you through one small, concrete action at a time.
-              </p>
+            <header className="max-w-2xl space-y-5">
+              <div className="text-[11px] font-mono uppercase tracking-[0.2em] text-teal-400/90">
+                Step 1 of 3
+              </div>
+
+              <div className="space-y-3">
+                <h1 className="text-3xl sm:text-[38px] font-semibold tracking-[-0.025em] text-white leading-[1.1]">
+                  Add Your Tasks
+                </h1>
+
+                <p className="text-[15px] sm:text-[16px] leading-7 text-slate-400 max-w-xl">
+                  Tell me what needs your attention today. I&apos;ll tell you what deserves it first.
+                </p>
+              </div>
+
+              <div className="border-l-2 border-teal-500/30 pl-4">
+                <p className="text-[13px] sm:text-[14px] leading-6 text-slate-400">
+                  <span className="text-slate-300 font-medium">
+                    Be specific.
+                  </span>{' '}
+                  The more specific your task, the more useful your next step will be.
+                </p>
+              </div>
             </header>
 
             {error && (

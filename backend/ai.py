@@ -17,53 +17,138 @@ class AIEngineAdapter(ABC):
     """Abstract base adapter for AI plan generation."""
 
     @abstractmethod
-    async def generate_plan(self, tasks: List[TaskItem]) -> List[MicroStepPlanItem]:
+    async def generate_plan(
+        self,
+        tasks: List[TaskItem],
+    ) -> List[MicroStepPlanItem]:
         pass
 
 
 class MockAIAdapter(AIEngineAdapter):
     """
-    Deterministic fallback.
+    Deterministic fallback used when the real AI provider is unavailable.
 
-    This intentionally stays simple and predictable. The real task-specific
-    reasoning is handled by OpenWeightAIAdapter when Groq is enabled.
+    This keeps the product functional during development, demos, or
+    temporary provider failures.
     """
 
-    async def generate_plan(self, tasks: List[TaskItem]) -> List[MicroStepPlanItem]:
-        def score_task(task: TaskItem) -> int:
-            urgency = {
-                UrgencyLevel.HIGH: 3,
-                UrgencyLevel.MEDIUM: 2,
-                UrgencyLevel.LOW: 1,
-            }[task.urgency]
+    provider_used = "mock"
 
-            importance = {
-                ImportanceLevel.HIGH: 3,
-                ImportanceLevel.MEDIUM: 2,
-                ImportanceLevel.LOW: 1,
-            }[task.importance]
+    async def generate_plan(
+        self,
+        tasks: List[TaskItem],
+    ) -> List[MicroStepPlanItem]:
 
-            return (importance * 10) + (urgency * 6)
-
-        sorted_tasks = sorted(tasks, key=score_task, reverse=True)
+        sorted_tasks = sorted(
+            tasks,
+            key=self._score_task,
+            reverse=True,
+        )
 
         plan = []
 
         for index, task in enumerate(sorted_tasks, start=1):
+            title = task.title
+
             plan.append(
                 MicroStepPlanItem(
-                    task=task.title.strip(),
+                    task=title,
                     priority=index,
                     estimated_minutes=self._estimate_minutes(task),
-                    micro_steps=[
-                        f"Start the most relevant part of '{task.title.strip()}'.",
-                        f"Make one concrete piece of progress on '{task.title.strip()}'.",
-                        "Stop at a clear checkpoint and continue from there next time.",
-                    ],
+                    micro_steps=[self._build_micro_step(title)],
                 )
             )
 
         return plan
+
+    def _build_micro_step(self, title: str) -> str:
+        task_text = title.casefold()
+
+        if any(
+            word in task_text
+            for word in ("read", "book", "article", "chapter")
+        ):
+            return (
+                f"Read the material named in '{title}' "
+                "and note its main point."
+            )
+
+        if any(
+            word in task_text
+            for word in (
+                "code",
+                "program",
+                "bug",
+                "feature",
+                "algorithm",
+            )
+        ):
+            return (
+                f"Implement the behavior described in '{title}' "
+                "and check it with one example."
+            )
+
+        if any(
+            word in task_text
+            for word in (
+                "study",
+                "learn",
+                "practice",
+                "course",
+                "lesson",
+            )
+        ):
+            return (
+                f"Work through one practice item for '{title}' "
+                "using the material you already planned to use."
+            )
+
+        if any(
+            word in task_text
+            for word in (
+                "write",
+                "draft",
+                "essay",
+                "email",
+                "journal",
+            )
+        ):
+            return f"Write the next missing part of '{title}'."
+
+        if any(
+            word in task_text
+            for word in (
+                "exercise",
+                "workout",
+                "gym",
+                "run",
+                "walk",
+            )
+        ):
+            return (
+                f"Complete the first exercise explicitly listed in "
+                f"'{title}'."
+            )
+
+        return (
+            f"Complete the next concrete outcome explicitly stated "
+            f"in '{title}'."
+        )
+
+    def _score_task(self, task: TaskItem) -> int:
+        urgency = {
+            UrgencyLevel.HIGH: 3,
+            UrgencyLevel.MEDIUM: 2,
+            UrgencyLevel.LOW: 1,
+        }[task.urgency]
+
+        importance = {
+            ImportanceLevel.HIGH: 3,
+            ImportanceLevel.MEDIUM: 2,
+            ImportanceLevel.LOW: 1,
+        }[task.importance]
+
+        return (importance * 10) + (urgency * 6)
 
     def _estimate_minutes(self, task: TaskItem) -> int:
         if (
@@ -83,13 +168,14 @@ class MockAIAdapter(AIEngineAdapter):
 
 class OpenWeightAIAdapter(AIEngineAdapter):
     """
-    Open-weight model adapter.
+    Open-weight AI adapter using Groq's OpenAI-compatible API.
 
-    Currently optimized for Groq's OpenAI-compatible API and
-    openai/gpt-oss-20b.
+    Default model:
+        openai/gpt-oss-20b
 
-    The adapter keeps prioritization deterministic and asks the model only
-    for task-specific execution steps.
+    The application handles task prioritization deterministically using
+    urgency + importance. The open-weight model is responsible for turning
+    each task into useful, task-specific execution steps.
     """
 
     def __init__(
@@ -114,29 +200,45 @@ class OpenWeightAIAdapter(AIEngineAdapter):
         )
 
         self.fallback_mock = MockAIAdapter()
+        self.provider_used = "groq"
 
     async def generate_plan(
         self,
         tasks: List[TaskItem],
     ) -> List[MicroStepPlanItem]:
 
+        if not tasks:
+            raise ValueError("At least one task is required")
+
         if not self.api_key:
+            print(
+                "[AI] No AI_API_KEY configured. "
+                "Using MockAI fallback."
+            )
+            self.provider_used = self.fallback_mock.provider_used
             return await self.fallback_mock.generate_plan(tasks)
 
-        try:
-            ordered_tasks = self._prioritize_tasks(tasks)
+        ordered_tasks = self._prioritize_tasks(tasks)
 
+        try:
             prompt = self._build_prompt(ordered_tasks)
 
             response = await self._call_model(prompt)
+
+            self.provider_used = "groq"
 
             return self._parse_response(
                 response,
                 ordered_tasks,
             )
 
-        except Exception:
-            # Product should remain usable even if the external model fails.
+        except Exception as exc:
+            print(
+                "[AI] Open-weight model failed. "
+                f"Using MockAI fallback. Error: {exc}"
+            )
+
+            self.provider_used = self.fallback_mock.provider_used
             return await self.fallback_mock.generate_plan(tasks)
 
     def _prioritize_tasks(
@@ -144,22 +246,33 @@ class OpenWeightAIAdapter(AIEngineAdapter):
         tasks: List[TaskItem],
     ) -> List[TaskItem]:
 
-        def score_task(task: TaskItem) -> int:
-            urgency = {
-                UrgencyLevel.HIGH: 3,
-                UrgencyLevel.MEDIUM: 2,
-                UrgencyLevel.LOW: 1,
-            }[task.urgency]
+        return sorted(
+            tasks,
+            key=self._score_task,
+            reverse=True,
+        )
 
-            importance = {
-                ImportanceLevel.HIGH: 3,
-                ImportanceLevel.MEDIUM: 2,
-                ImportanceLevel.LOW: 1,
-            }[task.importance]
+    def _score_task(self, task: TaskItem) -> int:
+        """
+        Eisenhower-style deterministic priority.
 
-            return (importance * 10) + (urgency * 6)
+        Importance has slightly more weight than urgency so that important
+        work does not consistently lose to merely urgent work.
+        """
 
-        return sorted(tasks, key=score_task, reverse=True)
+        urgency = {
+            UrgencyLevel.HIGH: 3,
+            UrgencyLevel.MEDIUM: 2,
+            UrgencyLevel.LOW: 1,
+        }[task.urgency]
+
+        importance = {
+            ImportanceLevel.HIGH: 3,
+            ImportanceLevel.MEDIUM: 2,
+            ImportanceLevel.LOW: 1,
+        }[task.importance]
+
+        return (importance * 10) + (urgency * 6)
 
     def _build_prompt(
         self,
@@ -168,7 +281,8 @@ class OpenWeightAIAdapter(AIEngineAdapter):
 
         task_data = [
             {
-                "title": task.title.strip(),
+                "id": task.id,
+                "title": task.title,
                 "urgency": task.urgency.value,
                 "importance": task.importance.value,
             }
@@ -176,82 +290,303 @@ class OpenWeightAIAdapter(AIEngineAdapter):
         ]
 
         return f"""
-You are the execution-planning engine inside MicroStep Anchor.
+You are the execution-planning engine inside a productivity product
+called MicroStep Anchor.
 
-Your job is NOT to give motivational advice.
-Your job is NOT to rewrite the user's task.
-Your job is to remove the user's next decision.
+Your role is an ACTION ANCHOR ADVISOR.
 
-The user has already provided urgency and importance.
-The application has already ordered the tasks.
+The user has already decided what tasks exist.
+The application has already decided the task order using urgency and
+importance.
 
-For each task, create a short sequence of meaningful actions that helps the
-user actually begin and make concrete progress.
+Your job is to remove the next decision the user would otherwise have to
+make.
 
-CORE RULES:
+Do NOT act like a motivational coach.
+Do NOT create a generic checklist.
+Do NOT rewrite the task into vague productivity language.
 
-1. Adapt to the task.
-   A study task, coding task, errand, appointment, exercise session,
-   creative task, reading task, application, or personal task should not
-   receive the same generic structure.
+Instead, decide what useful action should happen first and, only when
+necessary, what naturally follows from it.
 
-2. The first step must create meaningful momentum.
-   Do not waste a step saying:
-   - open your laptop
-   - open Chrome
-   - log in
-   - get comfortable
-   - start working
-   unless that action is genuinely necessary.
+CORE PRINCIPLES
 
-3. Never invent missing information.
-   If the user says "Study DBMS", do NOT invent:
-   - normalization
-   - transactions
-   - indexing
-   - ACID
-   or any other topic.
+1. TASK-SPECIFIC EXECUTION
 
-   Instead use the information actually supplied by the user.
+Adapt the actions to the actual task.
 
-4. User-provided details are authoritative.
-   If the task says:
-   "Study DBMS: ACID properties"
-   then the steps may specifically refer to ACID properties.
+Different tasks should feel different.
 
-5. Prefer useful specificity over generic encouragement.
+Examples:
 
-6. Do not add motivational clichés such as:
-   - "You've got this"
-   - "Great job"
-   - "Consistency compounds"
-   - "Keep pushing"
-   - "Small wins"
-   - "You've got this!"
-   - "Momentum is everything"
+- Coding should involve actual coding/problem-solving work.
+- Studying should involve actual learning or practice.
+- Reading should involve actual reading and extracting understanding.
+- Applications should involve completing the actual application.
+- Writing should involve producing or improving the actual writing.
+- Exercise should involve the actual exercise session.
+- Errands should involve the actual errand.
+- Creative work should involve creating something.
 
-7. Do not add completion/celebration steps.
-   The application itself handles the DONE action.
+Do not force every task into the same pattern.
 
-8. Each micro-step should represent meaningful progress, not merely
-   preparation.
+2. THE FIRST STEP MUST CREATE REAL PROGRESS
 
-9. Use between 2 and 5 micro-steps depending on task complexity.
-   Do NOT force every task into the same number of steps.
+The first micro-step should give the user a meaningful head start.
 
-10. Keep each step short enough to display comfortably on a single card.
+Avoid empty setup actions such as:
 
-11. Do not mention AI, the model, prompts, or this instruction.
+- Open your laptop.
+- Open Chrome.
+- Log in.
+- Get comfortable.
+- Find a quiet place.
+- Start working.
+- Begin the task.
 
-12. Return ONLY valid JSON.
+Only mention setup when it is genuinely necessary for the task.
 
-Expected JSON structure:
+3. NEVER INVENT USER CONTEXT
+
+The task text is the source of truth.
+
+If the user says:
+
+"Study DBMS"
+
+you do NOT know whether they mean:
+
+- normalization
+- ACID
+- indexing
+- transactions
+- SQL
+- joins
+- anything else
+
+Do not invent a topic.
+
+Instead, create an action that works with the information actually
+provided.
+
+For example:
+
+"Choose the DBMS material you already planned to study and work through
+one focused section."
+
+If the user says:
+
+"Study DBMS: ACID properties"
+
+then you may specifically use ACID properties.
+
+4. USER-PROVIDED DETAILS ARE AUTHORITATIVE
+
+Preserve useful details from the original task.
+
+If the user says:
+
+"Solve one CodeChef problem around the difficulty I am currently practicing"
+
+do not replace that with a generic programming exercise.
+
+If the user says:
+
+"Finish the first draft of my internship application"
+
+the actions should focus on the application and its draft.
+
+5. ONE PRIMARY ACTION PER STEP
+
+Each micro-step should represent one meaningful action or outcome.
+
+Do not bundle an entire mini-project into one sentence.
+
+Bad:
+
+"Read the problem, identify constraints, code the solution, test it,
+and submit it."
+
+Better:
+
+"Write down the input, output, and constraint that most affects your
+approach."
+
+Then, if another step is actually useful:
+
+"Implement the core approach and test it against one small example."
+
+6. FEWER STEPS ARE BETTER
+
+Return between 1 and 5 micro-steps.
+
+Do NOT create extra steps just to make the list look complete.
+
+If one strong action is enough, return one.
+
+If two are enough, return two.
+
+Use more only when the task naturally requires them.
+
+7. REMOVE DECISION FRICTION
+
+The user should be able to read the current step and immediately know
+what meaningful action to take.
+
+Prefer concrete verbs:
+
+- solve
+- compare
+- draft
+- revise
+- calculate
+- outline
+- test
+- practice
+- summarize
+- implement
+- identify
+- choose
+- write
+- review
+
+Avoid vague verbs:
+
+- work on
+- focus on
+- make progress
+- get started
+- handle
+- tackle
+- continue working
+
+unless the surrounding context makes them genuinely specific.
+
+8. NO MOTIVATIONAL CLICHÉS
+
+Never use phrases such as:
+
+- You've got this
+- Great job
+- Keep pushing
+- Small wins
+- Consistency compounds
+- Momentum is everything
+- Stay focused
+- You can do it
+- Believe in yourself
+
+The product provides execution guidance, not motivational speeches.
+
+9. NO COMPLETION STEP
+
+Do not create steps like:
+
+- Mark this complete.
+- Celebrate your progress.
+- Take a moment to appreciate the work.
+- Check the task off.
+
+The application already handles completion.
+
+10. NO TIME INSTRUCTIONS INSIDE STEPS
+
+The application separately displays estimated task time.
+
+Do not create unnecessary steps like:
+
+"Spend 20 minutes studying."
+
+Instead describe what the user should actually do.
+
+A conditional such as:
+
+"If you are stuck after 10 minutes, check the editorial for the missing
+idea."
+
+is acceptable when it is genuinely useful.
+
+11. KEEP STEPS DISPLAY-FRIENDLY
+
+Each step should normally be one or two concise sentences.
+
+Do not produce essays.
+
+12. DO NOT MENTION THE AI
+
+Never mention:
+
+- AI
+- model
+- prompt
+- system instructions
+- language model
+- generated response
+
+13. TASK IDENTITY
+
+The application owns the original task title.
+
+Do NOT return, rewrite, normalize, shorten, correct, or rename the task
+title.
+
+Identify each task only by its provided id.
+
+The application will restore the original task title itself.
+
+BEHAVIORAL EXAMPLES
+
+These are examples of the desired behavior, NOT templates to copy.
+
+Task:
+"Study DBMS"
+
+Good direction:
+"Choose the DBMS material you already planned to study and work through
+one uninterrupted section."
+
+Bad direction:
+"Study normalization and ACID properties."
+
+Reason:
+Those topics were never provided by the user.
+
+Task:
+"Study DBMS: ACID properties"
+
+Good direction:
+"Work through the ACID section in your planned DBMS material and write
+down what each property guarantees."
+
+Possible follow-up:
+"Without looking back, explain one example for each ACID property and mark
+the one you cannot explain clearly."
+
+Task:
+"Solve one CodeChef problem"
+
+Good direction:
+"Choose one problem from the difficulty range you are currently
+practicing and write down the input, output, and key constraint before
+coding."
+
+Possible follow-up:
+"Implement the core idea and test it against one small example. If the
+approach is still unclear after a focused attempt, use the editorial to
+identify the missing idea."
+
+Again: do not copy these examples mechanically.
+
+OUTPUT FORMAT
+
+Return ONLY valid JSON.
+
+Use exactly this structure:
 
 {{
   "tasks": [
     {{
-      "task": "original task title",
-      "estimated_minutes": 30,
+      "id": "original task id",
       "micro_steps": [
         "meaningful action",
         "meaningful action"
@@ -260,12 +595,28 @@ Expected JSON structure:
   ]
 }}
 
-Tasks:
+Important:
+
+- Use the exact task id provided in the input.
+- Do not return the task title.
+- Do not return any additional fields.
+- Return every input task exactly once.
+- Do not invent task ids.
+- Do not change task ids.
+- Do not rewrite task titles.
+
+Do not return markdown.
+Do not wrap the JSON in ```.
+
+TASKS
 
 {json.dumps(task_data, ensure_ascii=False, indent=2)}
 """
 
-    async def _call_model(self, prompt: str) -> dict:
+    async def _call_model(
+        self,
+        prompt: str,
+    ) -> dict:
 
         url = f"{self.api_base_url}/chat/completions"
 
@@ -284,8 +635,8 @@ Tasks:
                     "content": prompt,
                 },
             ],
-            "temperature": 0.4,
-            "max_tokens": 1200,
+            "temperature": 0.5,
+            "max_tokens": 1800,
         }
 
         headers = {
@@ -315,67 +666,110 @@ Tasks:
         if not choices:
             raise ValueError("Model returned no choices")
 
-        content = choices[0].get("message", {}).get("content", "")
+        message = choices[0].get("message", {})
+        content = message.get("content", "")
 
         if not content:
             raise ValueError("Model returned empty content")
 
+        content = content.strip()
+
+        # Defensive handling in case the model still wraps JSON in
+        # markdown despite being instructed not to.
+        if content.startswith("```"):
+            content = content.replace("```json", "", 1)
+            content = content.replace("```", "", 1).strip()
+
         data = json.loads(content)
 
-        generated_tasks = data.get("tasks", [])
+        generated_tasks = data.get("tasks")
 
         if not isinstance(generated_tasks, list):
             raise ValueError("Invalid tasks response")
 
-        original_by_title = {task.title.strip(): task for task in ordered_tasks}
+        original_by_id = {
+            task.id: task
+            for task in ordered_tasks
+        }
 
-        result = []
+        generated_steps_by_id = {}
+        seen_ids = set()
 
-        for index, generated in enumerate(generated_tasks, start=1):
-            title = str(generated.get("task", "")).strip()
-
-            if title not in original_by_title:
+        for generated in generated_tasks:
+            if not isinstance(generated, dict):
                 continue
 
-            original = original_by_title[title]
+            task_id = str(
+                generated.get("id", "")
+            ).strip()
+
+            if not task_id:
+                continue
+
+            if task_id not in original_by_id:
+                continue
+
+            if task_id in seen_ids:
+                continue
 
             raw_steps = generated.get("micro_steps", [])
 
             if not isinstance(raw_steps, list):
                 continue
 
-            steps = [str(step).strip() for step in raw_steps if str(step).strip()]
+            steps = []
 
+            for step in raw_steps:
+                if not isinstance(step, str):
+                    continue
+
+                cleaned = step.strip()
+
+                if cleaned:
+                    steps.append(cleaned)
+
+            # The product should never receive an empty task.
             if not steps:
                 continue
 
-            minutes = generated.get(
-                "estimated_minutes",
-                self._estimate_minutes(original),
+            # Keep the model within the product's intended range.
+            steps = steps[:5]
+
+            generated_steps_by_id[task_id] = steps
+            seen_ids.add(task_id)
+
+        # Every task must receive a plan.
+        # If anything is missing, deliberately trigger the fallback instead
+        # of showing a partially generated plan.
+        if len(generated_steps_by_id) != len(ordered_tasks):
+            missing = [
+                task.id
+                for task in ordered_tasks
+                if task.id not in seen_ids
+            ]
+
+            raise ValueError(
+                "Model did not return every task. "
+                f"Missing task IDs: {missing}"
             )
 
-            try:
-                minutes = int(minutes)
-            except (TypeError, ValueError):
-                minutes = self._estimate_minutes(original)
-
-            minutes = max(5, min(minutes, 120))
-
-            result.append(
-                MicroStepPlanItem(
-                    task=original.title.strip(),
-                    priority=index,
-                    estimated_minutes=minutes,
-                    micro_steps=steps[:5],
-                )
+        return [
+            MicroStepPlanItem(
+                task=task.title,
+                priority=index,
+                estimated_minutes=self._estimate_minutes(task),
+                micro_steps=generated_steps_by_id[task.id],
             )
+            for index, task in enumerate(ordered_tasks, start=1)
+        ]
 
-        if len(result) != len(ordered_tasks):
-            raise ValueError("Model did not return every task")
+    def _estimate_minutes(
+        self,
+        task: TaskItem,
+    ) -> int:
 
-        return result
-
-    def _estimate_minutes(self, task: TaskItem) -> int:
+        # Keep timing deterministic rather than asking the model to invent
+        # a duration. The frontend can rely on these values consistently.
         if (
             task.urgency == UrgencyLevel.HIGH
             and task.importance == ImportanceLevel.HIGH
@@ -392,9 +786,22 @@ Tasks:
 
 
 def get_ai_adapter() -> AIEngineAdapter:
-    """Return the configured AI adapter."""
+    """
+    Return the configured AI adapter.
 
-    provider = os.getenv("AI_PROVIDER", "mock").strip().lower()
+    Supported values:
+        mock
+        groq
+        open-weight
+        openweight
+        llama
+        huggingface
+    """
+
+    provider = os.getenv(
+        "AI_PROVIDER",
+        "mock",
+    ).strip().lower()
 
     if provider in {
         "open-weight",
