@@ -1,0 +1,6 @@
+{
+  "name": "MicroStep Anchor",
+  "description": "The user decides what exists. The AI decides what comes next. An anti-distraction productivity tool that breaks today's tasks into actionable micro-steps.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
