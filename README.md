@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # MicroStep Anchor ⚓
 
 > *"The user decides what exists. The AI decides what comes next."*
@@ -36,19 +37,6 @@ React Single-Step Execution Engine
 - **Frontend**: React 19, Vite, Tailwind CSS, Lucide icons, responsive and polished UI with calm glassmorphic depth.
 - **Backend**: Python FastAPI with Pydantic v2 validation.
 - **AI Abstraction**: Pluggable `AIEngineAdapter` supporting offline mock logic and open-weight models without app rewrites.
-
----
-
-## 🚀 Development Roadmap
-
-- [x] **Stage 1**: Project structure & working React + FastAPI setup with live health verification.
-- [ ] **Stage 2**: Task Input UI with multi-row input, Urgency & Importance dropdowns, and validation.
-- [ ] **Stage 3**: FastAPI endpoint & Eisenhower-prioritized micro-step decomposition logic.
-- [ ] **Stage 4**: Action Plan screen with 60-second automatic countdown & "START NOW" trigger.
-- [ ] **Stage 5**: Single micro-step execution experience with "DONE" transitions & Day Complete screen.
-- [ ] **Stage 6**: Real open-weight AI provider integration via the AI adapter.
-- [ ] **Stage 7**: End-to-end testing with realistic daily learning & practice tasks.
-- [ ] **Stage 8**: Production polish and deployment readiness.
 
 ---
 
