@@ -3,7 +3,6 @@
 > *"The user decides what exists. The AI decides what comes next."*
 
 Built for **Hacktoberfest 2026 ("Build for a Friend")** — a focus and productivity tool designed for a friend who has endless things she genuinely wants to do (courses, coding practice, language learning, GitHub, news, books, chess, etc.), but spends too much time deciding what to do next, gets stuck on one task, task-switches, becomes overwhelmed, and ends up distracted.
-
 MicroStep Anchor replaces decision paralysis with frictionless momentum.
 
 ---
